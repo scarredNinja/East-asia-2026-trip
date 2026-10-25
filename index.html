@@ -2527,6 +2527,47 @@ function initMobileEnhancements() {
     if (e.key === 'Escape') { closeFlexModal(); closeVenueModal(); }
   });
 
+  // Every backlog card gets real tappable links: Google Maps place + route (Japan), Naver (Korea)
+  const origBacklog = window.renderBacklog;
+  window.renderBacklog = function () {
+    origBacklog();
+    document.querySelectorAll('#backlogGrid > div').forEach(card => {
+      const b = card.querySelector('button[onclick^="openVenueModal("]');
+      if (!b) return;
+      const item = MASTER_BACKLOG.find(x => x.id === b.getAttribute('onclick').match(/'([^']+)'/)[1]);
+      if (!item) return;
+      let html = '';
+      if (JP_CITIES.includes(item.city)) {
+        const [n, pid] = jpTarget(item);
+        html = mapLink(gmPlaceUrl(n, pid), '📍 Google Maps', 'bg-amber-500/20 text-amber-300') +
+               mapLink(gmRouteUrl(HOTEL_ORIGIN[item.city], n, pid), '🚆 Route from hotel', 'bg-sky-500/20 text-sky-300');
+      } else if (item.naverUrl) {
+        html = mapLink(item.naverUrl, '🧭 Naver Map', 'bg-purple-500/20 text-purple-300');
+      }
+      if (!html) return;
+      const row = document.createElement('div');
+      row.className = 'flex flex-wrap gap-2 text-xs';
+      row.innerHTML = html;
+      card.insertBefore(row, card.lastElementChild);
+    });
+  };
+  const origVenue = window.openVenueModal;
+  window.openVenueModal = function (id) {
+    origVenue(id);
+    const item = MASTER_BACKLOG.find(x => x.id === id);
+    if (!item) return;
+    const box = document.getElementById('modalVenueWarningBox');
+    const note = JP_NOTES[id];
+    box.textContent = note ? '⚠️ ' + note : '';
+    box.classList.toggle('hidden', !note);
+    if (!JP_CITIES.includes(item.city)) return;
+    const [n, pid] = jpTarget(item);
+    document.getElementById('modalVenueActionButtons').innerHTML =
+      mapLink(gmPlaceUrl(n, pid), '📍 Google Maps', 'bg-amber-500 text-zinc-950 text-xs') +
+      mapLink(gmRouteUrl(HOTEL_ORIGIN[item.city], n, pid), '🚆 Route', 'bg-sky-500/20 text-sky-300 text-xs') +
+      '<button onclick="openSearchFor(\'' + id + '\')" class="px-2.5 py-1.5 rounded-lg bg-zinc-800 text-zinc-200 text-xs">🌐 Search</button>';
+  };
+
   // Collapsible day cards: bookings stay visible; plan note + morning/afternoon/evening fold away.
   // Wrapping renderItinerary (instead of editing its template) keeps this patch anchor-light.
   const openDays = new Set();
@@ -2579,11 +2620,66 @@ function initMobileEnhancements() {
 
 // Replacements for handlers that interpolated free text into inline onclick strings
 // (an apostrophe in "Philosopher's Path" / "'Hipjiro'" produced a JS syntax error)
+// ---- Google Maps place links (Japan) ----
+// Place IDs were looked up via Google Places; the name is the fallback if an ID ever goes stale.
+const JP_PLACES = {"os-castle": ["Osaka Castle", "ChIJ_TooXM3gAGARQR6hXH3QAQ8"], "os-himeji": ["Himeji Castle", "ChIJsyQzogPgVDURsYG6bi-MT3o"], "os-southwalk": ["Tsutenkaku", "ChIJ_0Lgd2DnAGARV0X03lbPy-U"], "os-denden": ["Nipponbashi Denden Town", "ChIJv6w_-2fnAGARH2p9wbwos3c"], "os-mandarake": ["Mandarake Grand Chaos Shop", "ChIJW8V2lRHnAGARg-ZmIGqjZBE"], "os-pinball": ["THE SILVER BALL PLANET", "ChIJjTs4RRDnAGAR7EdLkpaxS8s"], "os-hozenji": ["Hozen-ji", "ChIJI7QyuRTnAGARU28-XLGEOfU"], "os-dotonbori": ["Dotonbori", "ChIJg2DcJhXnAGARCbeAHoZrPeQ"], "os-timebomb": ["Time Bomb Records", "ChIJ5-MVvBHnAGAR3l2MWdYwHkY"], "os-tossy": ["TOSSY", "ChIJS1e0h5vnAGARF7UQu_gV9h4"], "ky-nijo": ["Nijo Castle", "ChIJC5srCtQHAWARLy9qkFmHaxA"], "ky-honnoji": ["Honno-ji Temple", "ChIJAR2bZpIIAWAR5joJ9NbWjR4"], "ky-mibu": ["Mibu Temple", "ChIJU_c9zi8GAWARp_WAfxEjqGU"], "ky-butokuden": ["Former Butoku Hall", "ChIJqVUili0JAWARPTIffK-ei8E"], "ky-manga": ["Kyoto International Manga Museum", "ChIJh1qJf4YIAWARTAOFMHrSHvI"], "ky-yamatoya": ["jazz spot YAMATOYA", "ChIJfyqbPfAIAWAR-SSj9v0lG-A"], "tk-swordmus": ["The Japanese Sword Museum", "ChIJD1-Hg8qOGGARrTp2UJ6Be14"], "tk-tnm": ["Tokyo National Museum", "ChIJEX3XFIOOGGAR3XdJvRjWLyM"], "tk-meiji": ["Meiji Jingu", "ChIJ5SZMmreMGGARcz8QSTiJyo8"], "tk-sengakuji": ["Sengaku-ji", "ChIJh64KT6uLGGARKx4cxgOaL54"], "tk-akiba": ["Akihabara Radio Kaikan", "ChIJ__-AdayOGGAR6EGPwvcpzTA"], "tk-nakano": ["Nakano Broadway", "ChIJg-7dspDyGGARvvDv4E5-tuE"], "tk-mikado": ["Takadanobaba Mikado Game Center", "ChIJzyCiozmNGGARgUHWRX2ul5s"], "tk-parco": ["Shibuya Parco", "ChIJcyH-4qiMGGARGzk4lZCx2xo"], "tk-lion": ["Meikyoku Kissa Lion", "ChIJFQdviqmMGGAR1muN_DAZFwQ"], "tk-martha": ["Bar Martha", "ChIJ8Sf5MRWLGGARvn90Gd7zRwI"], "tk-kappabashi": ["Kappabashi Kitchen Supply Town", "ChIJXYV-6JWOGGAR85vIZbM1RCE"], "tk-sensoji": ["Senso-ji", "ChIJ8T1GpMGOGGARDYGSgpooDWw"], "tk-senbukai": ["Keikyu-Kawasaki Station", "ChIJq2ivJZhgGGARF4wmVUCZIkM"]};
+const JP_CITIES = ['osaka', 'kyoto', 'tokyo'];
+const GM = 'https://www.google.com/maps/';
+const enc = encodeURIComponent;
+const HOTEL_ORIGIN = {
+  osaka: ['1-2-10 Ebisunishi, Naniwa-ku, Osaka', null],
+  kyoto: ['1-2-10 Ebisunishi, Naniwa-ku, Osaka', null],
+  tokyo: ['Asakusa Tobu Hotel', 'ChIJ8UTIv8aOGGARrFzeWHTIBKU']
+};
+const JP_NOTES = {
+  'ky-manga': 'Google lists this closed Wednesday AND Thursday (your 28 and 29 Oct).',
+  'ky-yamatoya': 'Google lists this closed Wednesday and Thursday. It is in your Thu 29 Oct Option A plan.',
+  'os-tossy': 'Google puts this in Umeda (Kita), not Minami. Opens 8 PM, closed Mondays.',
+  'os-denden': 'Google lists shops here as 11 AM to 7 PM.',
+  'os-mandarake': 'Google lists hours as 12 to 8 PM.',
+  'tk-lion': 'Google lists hours as 1 to 8 PM, so it will not fit after dinner.',
+  'tk-martha': 'Opens 7 PM. Google rating is 3.1, and several reviews mention crowding and noise.',
+  'tk-kappabashi': 'Google lists this closed Saturday and Sunday.',
+  'tk-senbukai': 'This link goes to Keikyu-Kawasaki Station, not the dojo. Add the dojo address from your booking.',
+  'tk-hogyokukai': 'No verified location: this is a text search. Replace it with the dojo address from your booking.'
+};
+const DAY_ROUTE = {
+  'day-1': { to: 'Bosu Book Street Busan' }, 'day-2': { to: 'Haedong Yonggungsa Temple Busan' },
+  'day-3': { to: 'Dongnae-eupseong Fortress Busan' }, 'day-4': { to: 'Huinnyeoul Culture Village Busan' },
+  'day-5': { to: 'Samjung Tower Seomyeon Busan' }, 'day-6': { to: 'Seoul Station' },
+  'day-7': { from: 'Kansai International Airport', to: 'Shin-Imamiya Station' },
+  'day-8': { ref: 'os-southwalk' }, 'day-9': { ref: 'ky-nijo' }, 'day-10': { ref: 'ky-butokuden' },
+  'day-11': { from: '1-2-10 Ebisunishi, Naniwa-ku, Osaka', to: 'Shin-Osaka Station' },
+  'day-12': { ref: 'tk-senbukai' }, 'day-13': { ref: 'tk-swordmus' },
+  'day-14': { to: 'Kamakura Station' }, 'day-15': { ref: 'tk-meiji' },
+  'day-16': { to: 'Narita Airport Terminal 1' }
+};
+function jpTarget(item) {
+  const p = JP_PLACES[item.id];
+  return p ? [p[0], p[1]] : [item.mapQuery, null];
+}
+function gmPlaceUrl(name, pid) {
+  return GM + 'search/?api=1&query=' + enc(name) + (pid ? '&query_place_id=' + pid : '');
+}
+function gmRouteUrl(origin, name, pid) {
+  return GM + 'dir/?api=1&origin=' + enc(origin[0]) + (origin[1] ? '&origin_place_id=' + origin[1] : '') +
+    '&destination=' + enc(name) + (pid ? '&destination_place_id=' + pid : '') + '&travelmode=transit';
+}
+function mapLink(href, text, cls) {
+  return '<a href="' + href.replace(/&/g, '&amp;') + '" target="_blank" rel="noopener" class="px-2.5 py-1.5 rounded-lg font-semibold ' + cls + '">' + text + '</a>';
+}
 window.openDayTransitRoute = function (dayId) {
   const d = appState.itineraryDays.find(x => x.id === dayId);
   if (!d) return;
-  const base = BASE_ACCOMMODATIONS[d.city] || BASE_ACCOMMODATIONS.tokyo;
-  openTransitDirections(base.address, d.anchor, d.city);
+  const r = DAY_ROUTE[dayId] || {};
+  if (d.city === 'busan' || d.city === 'seoul') {
+    window.open('https://map.naver.com/p/search/' + enc(r.to || d.anchor.split(/[→(]/)[0].trim()), '_blank');
+    return;
+  }
+  let name = r.to, pid = null;
+  if (r.ref) [name, pid] = jpTarget(MASTER_BACKLOG.find(x => x.id === r.ref));
+  const origin = r.from ? [r.from, null] : (HOTEL_ORIGIN[d.city] || HOTEL_ORIGIN.tokyo);
+  window.open(gmRouteUrl(origin, name, pid), '_blank');
 };
 window.openSearchFor = function (id) {
   const i = MASTER_BACKLOG.find(x => x.id === id);
